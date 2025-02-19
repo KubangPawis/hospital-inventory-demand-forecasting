@@ -1,0 +1,19 @@
+item_id,item_name,description,item_type,min_required,max_capacity,created_by,status
+100,Ventilator,A medical device that supports or takes over breathing for patients with respiratory failure.,Equipment,3,25,67b1fdb293bfc8e17f896b31,Active
+101,X-Ray-Machine,A diagnostic tool that uses radiation to create images of bones and internal structures.,Equipment,1,10,67b1fdb293bfc8e17f896b31,Active
+102,Defibrilator,A life-saving device that delivers electric shocks to restore normal heart rhythms in cardiac arrest patients.,Equipment,1,8,67b1fdb293bfc8e17f896b31,Active
+103,Wheelchair,A mobility aid designed to assist patients with limited or no ability to walk.,Equipment,5,30,67b1fdb293bfc8e17f896b31,Active
+104,Hospital Bed,"An adjustable bed designed for patient care, enhancing comfort and accessibility in medical settings.",Equipment,25,150,67b1fdb293bfc8e17f896b31,Active
+105,ECG Machine,A device that records the heart’s electrical activity to detect irregularities and cardiac conditions.,Equipment,2,10,67b1fdb293bfc8e17f896b31,Active
+106,MRI Scanner,An imaging system that uses magnetic fields and radio waves to create detailed images of internal organs.,Equipment,1,2,67b1fdb293bfc8e17f896b31,Active
+107,Infusion Pump,"A device that precisely delivers fluids, medications, or nutrients into a patient’s bloodstream.",Equipment,3,15,67b1fdb293bfc8e17f896b31,Active
+200,Gloves,Protective hand coverings used by medical staff to maintain hygiene and prevent contamination.,Consumable,1000,5000,67b1fdb293bfc8e17f896b31,Active
+201,IV Drip,"A method of delivering fluids, nutrients, or medications directly into a patient's veins.",Consumable,300,2000,67b1fdb293bfc8e17f896b31,Active
+202,Surgical Mask,A disposable face mask that protects against airborne contaminants and reduces infection spread.,Consumable,3000,15000,67b1fdb293bfc8e17f896b31,Active
+203,Gown,A protective garment worn by medical staff to prevent contamination and ensure a sterile environment.,Consumable,500,3000,67b1fdb293bfc8e17f896b31,Active
+204,Face Shield,"A transparent protective visor that guards against splashes, droplets, and airborne particles.",Consumable,500,4000,67b1fdb293bfc8e17f896b31,Active
+205,Syringe,A medical instrument used to inject or withdraw fluids from the body.,Consumable,1500,8000,67b1fdb293bfc8e17f896b31,Active
+206,Bandages,Sterile materials used to cover wounds and promote healing while preventing infections.,Consumable,1000,6000,67b1fdb293bfc8e17f896b31,Active
+207,Blood Bags,"Special containers designed for the collection, storage, and transfusion of blood.",Consumable,300,1500,67b1fdb293bfc8e17f896b31,Active
+208,Antiseptic Solution,A liquid disinfectant used to cleanse wounds and prevent infections.,Consumable,500,3000,67b1fdb293bfc8e17f896b31,Active
+209,Cotton Rolls,"Soft, absorbent materials used in medical applications for wound care and cleaning.",Consumable,300,2000,67b1fdb293bfc8e17f896b31,Active
