@@ -1,12 +1,24 @@
 from flask import Flask, request, jsonify
-import joblib
+from pymongo import MongoClient
+from dotenv import load_dotenv
 import pandas as pd
 import joblib
+import os
 
 app = Flask(__name__)
 
+# Load .env
+load_dotenv()
+
+# Database Connection
+mongo_uri = os.getenv('MONGO_URI')
+client = MongoClient(mongo_uri)
+db = client['ngh_logistics_db']
+item_collection = db['listings']
+stock_collection = db['listing_stocks']
+
 # ABC Analysis KMeans Clustering Model
-abc_model = joblib.load('abc_model.joblib')
+abc_model = joblib.load('./models/hospital_abc_clf.joblib')
 
 # Inventory Demand Forecasting SARIMAX Model
 sarimax_forecast_models = {
@@ -31,8 +43,13 @@ sarimax_forecast_models = {
 
 @app.route('/')
 def home():
-    return jsonify({'message': 'Hospital Inventory API is running'})
+    document = item_collection.find()
+    for i in document:
+        print(f'\n{i}\n')
 
+    return jsonify({
+        'message': 'Hospital Inventory API is running'
+        })
 '''
 ABC Clustering Classification
 ________________________________
