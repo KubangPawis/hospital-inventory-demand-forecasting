@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from bson import ObjectId
 import pandas as pd
 import joblib
+import json
 import os
 
 app = Flask(__name__)
@@ -15,7 +17,7 @@ mongo_uri = os.getenv('MONGO_URI')
 client = MongoClient(mongo_uri)
 db = client['ngh_logistics_db']
 item_collection = db['listings']
-stock_collection = db['listing_stocks']
+stock_collection = db['listingstocks']
 
 # ABC Analysis KMeans Clustering Model
 abc_model = joblib.load('./models/hospital_abc_clf.joblib')
@@ -43,13 +45,52 @@ sarimax_forecast_models = {
 
 @app.route('/')
 def home():
-    document = item_collection.find()
-    for i in document:
-        print(f'\n{i}\n')
-
     return jsonify({
         'message': 'Hospital Inventory API is running'
         })
+
+@app.route('/check_item_data')
+def check_item_data():
+    item_listing_data = item_collection.find()
+    for item in item_listing_data:
+        print(f'\n{item}\n')
+
+    return jsonify({
+        'message': '[DATA LOAD] Loading item listing from collection.'
+        })
+
+@app.route('/check_stock_data')
+def check_stock_data():
+    stock_listing_data = stock_collection.find()
+    for stock in stock_listing_data:
+        print(f'\n{stock}\n')
+
+    return jsonify({
+        'message': '[DATA LOAD] Loading stock listing from collection.'
+        })
+
+@app.route('/preload_item_data')
+def preload_data():
+    with open('./data/exported_listings_v2.json', 'r', encoding='utf-8') as item_listing_file:
+        item_listing_data = json.load(item_listing_file)
+
+    for item in item_listing_data:
+        item['createdBy'] = ObjectId(item['createdBy'])
+        item_collection.insert_one(item)
+
+    return jsonify({
+            'message': f'Successfully inserted new items',
+            'total_items': item_collection.count_documents({})
+        }), 201
+
+@app.route('/delete_item_listings', methods=['DELETE'])
+def delete_item_listings():
+    try:
+        result = item_collection.delete_many({})
+        return jsonify({'message': 'All records deleted successfully', 'deleted_count': result.deleted_count}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 '''
 ABC Clustering Classification
 ________________________________
