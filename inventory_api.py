@@ -106,6 +106,21 @@ def preload_data():
             'total_items': item_collection.count_documents({})
         }), 201
 
+@app.route('/preload_stock_data')
+def preload_stock_data():
+    with open('./data/stock_listing_v3.json', 'r', encoding='utf-8') as stock_listing_file:
+        stock_listing_data = json.load(stock_listing_file)
+
+    for stock in stock_listing_data:
+        stock['listing'] = ObjectId(stock['listing'])
+        stock_collection.insert_one(stock)
+
+    return jsonify({
+            'message': f'Successfully inserted new stocks',
+            'total_items': stock_collection.count_documents({})
+        }), 201
+
+
 @app.route('/delete_item_listings', methods=['DELETE'])
 def delete_item_listings():
     try:
