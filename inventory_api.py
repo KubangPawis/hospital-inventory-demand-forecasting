@@ -69,6 +69,29 @@ def check_stock_data():
         'message': '[DATA LOAD] Loading stock listing from collection.'
         })
 
+@app.route('/export_item_data')
+def export_item_data():
+    try:
+        item_listing_data = list(item_collection.find())
+        item_arr = [
+            {**item, '_id': str(item['_id']), 'createdBy': str(item['createdBy'])} for item in item_listing_data
+        ]
+
+        if not item_arr:
+            return jsonify({'message': '[EXPORT] No items found in the collection.'}), 404
+        
+        # Export item listing json file
+        file_path = './data/exported_listings_v3.json'
+        with open(file_path, 'w', encoding='utf-8') as json_file:
+            json.dump(item_arr, json_file, ensure_ascii=False, indent=4)
+
+        return jsonify({
+            'message': '[EXPORT] Exporting item listing from collection.',
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/preload_item_data')
 def preload_data():
     with open('./data/exported_listings_v2.json', 'r', encoding='utf-8') as item_listing_file:
