@@ -82,7 +82,7 @@ def export_item_data():
             return jsonify({'message': '[EXPORT] No items found in the collection.'}), 404
         
         # Export item listing json file
-        file_path = './data/exported_listings_v3.json'
+        file_path = './data/exported_listings_v4_1.json'
         with open(file_path, 'w', encoding='utf-8') as json_file:
             json.dump(item_arr, json_file, ensure_ascii=False, indent=4)
 
@@ -109,7 +109,7 @@ def preload_data():
 
 @app.route('/preload_stock_data')
 def preload_stock_data():
-    with open('./data/stock_listing_v3.json', 'r', encoding='utf-8') as stock_listing_file:
+    with open('./data/stock_listing_v4.json', 'r', encoding='utf-8') as stock_listing_file:
         stock_listing_data = json.load(stock_listing_file)
 
     for stock in stock_listing_data:
@@ -189,7 +189,6 @@ def forecast_demand():
     # data = request.json
     # item_id = data.get('listing')
     # abc_category = data.get('abcCategory')
-    # monthly_demand = data.get('monthly_demand_arr')
 
     #item_id = '67bbc12f5f7b8b0dfee458ef'
     item_id = '67bf7a6b53045fd526e2cce6'
@@ -238,6 +237,7 @@ def forecast_demand():
     
     return jsonify({
         'message': '[DEMAND FORECASTING] Successfully predicted product 6-month demand.',
+        'forecast': forecast
     })
 
 if __name__ == '__main__':
