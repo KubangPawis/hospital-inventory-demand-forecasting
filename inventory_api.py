@@ -176,6 +176,74 @@ def classify_abc():
     })
 
 '''
+Top 5 Demands for Current Month
+________________________________
+'''
+@app.route('/monthly_top_demands')
+def monthly_top_demands():
+    item_listing_arr = [x['_id'] for x in item_collection.find()]
+    item_demand_map = {}
+
+    # Compute monthly demand of current data
+    for item_id in item_listing_arr:
+        curr_item_id = item_id
+        item_name = item_collection.find_one({'_id': ObjectId(curr_item_id)})['title']
+
+        stock_listing = pd.DataFrame([
+            {**stock, '_id': str(stock['_id']), 'listing': str(stock['listing'])} for stock in stock_collection.find({'listing': ObjectId(curr_item_id)})
+        ])
+        
+        # ERROR HANDLING: In case item has not stock listing records yet
+        if stock_listing.empty:
+            continue
+
+        stock_listing_data = stock_listing.copy()
+        stock_listing_data = stock_listing_data[['acquisitionDate', 'quantity']]
+        stock_listing_data['month'] = stock_listing_data['acquisitionDate'].dt.to_period('M')
+        stock_listing_data.sort_values('acquisitionDate', inplace=True)
+        stock_listing_data['stockDiff'] = stock_listing_data.groupby('month')['quantity'].transform(lambda x: x.diff())
+        stock_listing_data['restockQuantity'] = stock_listing_data.groupby('month')['stockDiff'].transform(lambda x: x.clip(lower=0))
+        stock_listing_data.drop('stockDiff', axis=1, inplace=True)
+        stock_listing_data = stock_listing_data.groupby('month')['restockQuantity'].sum().reset_index()
+
+        # Create beginning and ending monthly inventory
+        stock_listing_data_1 = stock_listing.copy()
+        stock_listing_data_1['month'] = stock_listing_data_1['acquisitionDate'].dt.to_period('M')
+        stock_listing_data_1['year'] = stock_listing_data_1['acquisitionDate'].dt.to_period('Y')
+
+        monthly_start_end_stock = stock_listing_data_1.groupby('month').agg(
+                beginning_inventory_monthly = ('quantity', 'first'),
+                ending_inventory_monthly = ('quantity', 'last'),
+        ).reset_index()
+
+        stock_listing_data = stock_listing_data.merge(monthly_start_end_stock, on='month')
+
+        # Create demand column
+        stock_listing_data['demand'] = stock_listing_data['beginning_inventory_monthly'] + stock_listing_data['ending_inventory_monthly'] - stock_listing_data['restockQuantity']
+        stock_listing_data.drop(columns=['beginning_inventory_monthly', 'ending_inventory_monthly'], inplace=True)
+
+        print('_' * 30)
+        print()
+        print(stock_listing_data)
+
+        # Pass demand of latest month
+        latest_month = stock_listing_data['month'].max()
+        latest_demand = stock_listing_data.loc[stock_listing_data['month'] == latest_month, 'demand'].values[0]
+
+        print()
+        print(f'CURRENT ITEM: {item_name}')
+        print(f'LATEST MONTH: {latest_month}')
+        print(f'LATEST DEMAND: {latest_demand}')
+        print()
+        item_demand_map[item_name] = latest_demand
+
+    # Rank based on demand then get top 5
+    print(item_demand_map)
+    item_demand_map = dict(sorted(item_demand_map.items(), key=lambda x: x[1], reverse=True)[:5])
+        
+    return jsonify(item_demand_map)
+
+'''
 6-Month Demand Forecasting
 ________________________________
 
