@@ -42,6 +42,7 @@ sarimax_forecast_models = {
     'Ventilator': joblib.load('./models/ventilator_sarimax.joblib'),
     'Wheelchair': joblib.load('./models/wheelchair_sarimax.joblib'),
     'X-Ray-Machine': joblib.load('./models/x_ray_machine_sarimax.joblib'),
+    'Hospital Bed': joblib.load('./models/hospital_bed_sarimax.joblib'),
 }
 
 @app.route('/')
@@ -178,67 +179,91 @@ def classify_abc():
 6-Month Demand Forecasting
 ________________________________
 
-Request Data Format
-1. item_name
-2. monthly_demand_arr
-
 '''
 
 @app.route('/forecast_demand')
 def forecast_demand():
-    # data = request.json
-    # item_id = data.get('listing')
-    # abc_category = data.get('abcCategory')
-
-    #item_id = '67bbc12f5f7b8b0dfee458ef'
-    item_id = '67bf7a6b53045fd526e2cce6'
-    abc_category = 'B'
+    item_listing_arr = [(x['_id'], x['abcCategory']) for x in item_collection.find()]
+    item_forecast_dict = {}
 
     # Compute monthly demand of current data
-    stock_listing_data = pd.DataFrame([
-            {**stock, '_id': str(stock['_id']), 'listing': str(stock['listing'])} for stock in stock_collection.find({'listing': ObjectId(item_id)})
-        ])
-    stock_listing_data = stock_listing_data[['acquisitionDate', 'quantity']]
-    stock_listing_data['month'] = stock_listing_data['acquisitionDate'].dt.to_period('M')
-    stock_listing_data.sort_values('acquisitionDate', inplace=True)
-    stock_listing_data['stockDiff'] = stock_listing_data.groupby('month')['quantity'].transform(lambda x: x.diff())
-    stock_listing_data['restockQuantity'] = stock_listing_data.groupby('month')['stockDiff'].transform(lambda x: x.clip(lower=0))
-    stock_listing_data.drop('stockDiff', axis=1, inplace=True)
-    stock_listing_data = stock_listing_data.groupby('month')['restockQuantity'].sum().reset_index()
-    stock_listing_data['abcCategory'] = abc_category
+    for item_id, abc_category in item_listing_arr:
+        curr_item_id = item_id
+        curr_abc_category = abc_category
+        stock_listing = pd.DataFrame([
+                {**stock, '_id': str(stock['_id']), 'listing': str(stock['listing'])} for stock in stock_collection.find({'listing': ObjectId(curr_item_id)})
+            ])
+        
+        # ERROR HANDLING: In case item has not stock listing records yet
+        if stock_listing.empty:
+            continue
 
-    # Categorical One-Hot Encoding
-    stock_listing_model = stock_listing_data.copy()
-    stock_listing_model = pd.get_dummies(stock_listing_model, columns=['abcCategory'], prefix='ABC')
-    stock_listing_model[['ABC_A', 'ABC_B', 'ABC_C']] = stock_listing_model[['ABC_A', 'ABC_B', 'ABC_C']].astype(int)
+        stock_listing_data = stock_listing.copy()
+        stock_listing_data = stock_listing_data[['acquisitionDate', 'quantity']]
+        stock_listing_data['month'] = stock_listing_data['acquisitionDate'].dt.to_period('M')
+        stock_listing_data.sort_values('acquisitionDate', inplace=True)
+        stock_listing_data['stockDiff'] = stock_listing_data.groupby('month')['quantity'].transform(lambda x: x.diff())
+        stock_listing_data['restockQuantity'] = stock_listing_data.groupby('month')['stockDiff'].transform(lambda x: x.clip(lower=0))
+        stock_listing_data.drop('stockDiff', axis=1, inplace=True)
+        stock_listing_data = stock_listing_data.groupby('month')['restockQuantity'].sum().reset_index()
+        stock_listing_data['abcCategory'] = curr_abc_category
 
-    print(stock_listing_model)
+        # Create beginning and ending monthly inventory
+        stock_listing_data_1 = stock_listing.copy()
+        stock_listing_data_1['month'] = stock_listing_data_1['acquisitionDate'].dt.to_period('M')
+        stock_listing_data_1['year'] = stock_listing_data_1['acquisitionDate'].dt.to_period('Y')
 
-    # Get item name of current item_id
-    item_name = item_collection.find_one({'_id': ObjectId(item_id)})['title']
-    print(f'Item Name: {item_name}')
+        monthly_start_end_stock = stock_listing_data_1.groupby('month').agg(
+                beginning_inventory_monthly = ('quantity', 'first'),
+                ending_inventory_monthly = ('quantity', 'last'),
+        ).reset_index()
 
-    model = sarimax_forecast_models[item_name]
+        stock_listing_data = stock_listing_data.merge(monthly_start_end_stock, on='month')
 
-    # Defined 6-month prediction
-    future_steps = 6
-    future_exog = pd.DataFrame({
-        'restock_quantity': [stock_listing_model['restockQuantity'].mean()] * future_steps,
-        'ABC_A': [stock_listing_model['ABC_A'].mean()] * future_steps,
-        'ABC_B': [stock_listing_model['ABC_B'].mean()] * future_steps,
-        'ABC_C': [stock_listing_model['ABC_C'].mean()] * future_steps
-    })
+        # Create demand column
+        stock_listing_data['demand'] = stock_listing_data['beginning_inventory_monthly'] + stock_listing_data['ending_inventory_monthly'] - stock_listing_data['restockQuantity']
+        stock_listing_data.drop(columns=['beginning_inventory_monthly', 'ending_inventory_monthly'], inplace=True)
 
-    # Predict demand for given future periods
-    forecast = model.forecast(steps=future_steps, exog=future_exog)
+        print(stock_listing_data)
 
-    print('6 MONTH FORECAST')
-    print(forecast)
+        # Categorical One-Hot Encoding
+        stock_listing_model = stock_listing_data.copy()
+        stock_listing_model = pd.get_dummies(stock_listing_model, columns=['abcCategory'], prefix='ABC', drop_first=False)
+
+        # Ensure all dummy columns exist
+        for col in ['ABC_A', 'ABC_B', 'ABC_C']:
+            if col not in stock_listing_model.columns:
+                stock_listing_model[col] = 0
+
+        dummy_columns = [col for col in ['ABC_A', 'ABC_B', 'ABC_C'] if col in stock_listing_model.columns]
+        stock_listing_model[dummy_columns] = stock_listing_model[dummy_columns].astype(int)
+
+        # Get item name of current item_id
+        item_name = item_collection.find_one({'_id': ObjectId(curr_item_id)})['title']
+        model = sarimax_forecast_models[item_name]
+
+        # Defined 6-month prediction
+        future_steps = 6
+        future_exog = pd.DataFrame({
+            'restock_quantity': [stock_listing_model['restockQuantity'].mean()] * future_steps,
+            'ABC_A': [stock_listing_model['ABC_A'].mean()] * future_steps,
+            'ABC_B': [stock_listing_model['ABC_B'].mean()] * future_steps,
+            'ABC_C': [stock_listing_model['ABC_C'].mean()] * future_steps
+        })
+
+        # Predict demand for given future periods
+        forecast = model.forecast(steps=future_steps, exog=future_exog)
+        item_forecast_dict[item_name] = {
+            'previousDemand': list(stock_listing_data['demand']),
+            'forecast': list(forecast),
+        }
+
+        print(f'\n{item_name} -- 6 MONTH FORECAST')
+        print(forecast)
+
+    print(item_forecast_dict)
     
-    return jsonify({
-        'message': '[DEMAND FORECASTING] Successfully predicted product 6-month demand.',
-        'forecast': forecast
-    })
+    return jsonify(item_forecast_dict)
 
 if __name__ == '__main__':
     app.run(debug=True)
