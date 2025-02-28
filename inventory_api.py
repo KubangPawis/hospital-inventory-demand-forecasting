@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from bson import ObjectId
+from dateutil import parser
 import pandas as pd
 import joblib
 import json
@@ -94,7 +95,7 @@ def export_item_data():
 
 @app.route('/preload_item_data')
 def preload_data():
-    with open('./data/exported_listings_v2.json', 'r', encoding='utf-8') as item_listing_file:
+    with open('./data/exported_listings_v4.json', 'r', encoding='utf-8') as item_listing_file:
         item_listing_data = json.load(item_listing_file)
 
     for item in item_listing_data:
@@ -113,6 +114,7 @@ def preload_stock_data():
 
     for stock in stock_listing_data:
         stock['listing'] = ObjectId(stock['listing'])
+        stock['acquisitionDate'] = parser.parse(stock['acquisitionDate'])
         stock_collection.insert_one(stock)
 
     return jsonify({
@@ -121,10 +123,18 @@ def preload_stock_data():
         }), 201
 
 
-@app.route('/delete_item_listings', methods=['DELETE'])
+@app.route('/delete_item_listings')
 def delete_item_listings():
     try:
         result = item_collection.delete_many({})
+        return jsonify({'message': 'All records deleted successfully', 'deleted_count': result.deleted_count}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/delete_stock_listings')
+def delete_stock_listings():
+    try:
+        result = stock_collection.delete_many({})
         return jsonify({'message': 'All records deleted successfully', 'deleted_count': result.deleted_count}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -174,32 +184,60 @@ Request Data Format
 
 '''
 
-@app.route('/forecast_demand', methods=['POST'])
+@app.route('/forecast_demand')
 def forecast_demand():
-    data = request.json
-    item_name = data.get('item_name')
-    monthly_demand = data.get('monthly_demand_arr')
+    # data = request.json
+    # item_id = data.get('listing')
+    # abc_category = data.get('abcCategory')
+    # monthly_demand = data.get('monthly_demand_arr')
 
-    if item_name not in sarimax_forecast_models:
-        return jsonify({'error': 'No trained ARIMA model for this item'}), 400
+    #item_id = '67bbc12f5f7b8b0dfee458ef'
+    item_id = '67bf7a6b53045fd526e2cce6'
+    abc_category = 'B'
+
+    # Compute monthly demand of current data
+    stock_listing_data = pd.DataFrame([
+            {**stock, '_id': str(stock['_id']), 'listing': str(stock['listing'])} for stock in stock_collection.find({'listing': ObjectId(item_id)})
+        ])
+    stock_listing_data = stock_listing_data[['acquisitionDate', 'quantity']]
+    stock_listing_data['month'] = stock_listing_data['acquisitionDate'].dt.to_period('M')
+    stock_listing_data.sort_values('acquisitionDate', inplace=True)
+    stock_listing_data['stockDiff'] = stock_listing_data.groupby('month')['quantity'].transform(lambda x: x.diff())
+    stock_listing_data['restockQuantity'] = stock_listing_data.groupby('month')['stockDiff'].transform(lambda x: x.clip(lower=0))
+    stock_listing_data.drop('stockDiff', axis=1, inplace=True)
+    stock_listing_data = stock_listing_data.groupby('month')['restockQuantity'].sum().reset_index()
+    stock_listing_data['abcCategory'] = abc_category
+
+    # Categorical One-Hot Encoding
+    stock_listing_model = stock_listing_data.copy()
+    stock_listing_model = pd.get_dummies(stock_listing_model, columns=['abcCategory'], prefix='ABC')
+    stock_listing_model[['ABC_A', 'ABC_B', 'ABC_C']] = stock_listing_model[['ABC_A', 'ABC_B', 'ABC_C']].astype(int)
+
+    print(stock_listing_model)
+
+    # Get item name of current item_id
+    item_name = item_collection.find_one({'_id': ObjectId(item_id)})['title']
+    print(f'Item Name: {item_name}')
 
     model = sarimax_forecast_models[item_name]
 
     # Defined 6-month prediction
     future_steps = 6
     future_exog = pd.DataFrame({
-        'restock_quantity': [monthly_demand['restock_quantity'].mean()] * future_steps,
-        'ABC_A': [monthly_demand['ABC_A'].mean()] * future_steps,
-        'ABC_B': [monthly_demand['ABC_B'].mean()] * future_steps,
-        'ABC_C': [monthly_demand['ABC_C'].mean()] * future_steps
+        'restock_quantity': [stock_listing_model['restockQuantity'].mean()] * future_steps,
+        'ABC_A': [stock_listing_model['ABC_A'].mean()] * future_steps,
+        'ABC_B': [stock_listing_model['ABC_B'].mean()] * future_steps,
+        'ABC_C': [stock_listing_model['ABC_C'].mean()] * future_steps
     })
 
     # Predict demand for given future periods
     forecast = model.forecast(steps=future_steps, exog=future_exog)
+
+    print('6 MONTH FORECAST')
+    print(forecast)
     
     return jsonify({
-        'item_name': item_name,
-        'forecast': forecast.tolist(),
+        'message': '[DEMAND FORECASTING] Successfully predicted product 6-month demand.',
     })
 
 if __name__ == '__main__':
