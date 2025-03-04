@@ -1,9 +1,13 @@
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from bson import ObjectId
 from dateutil import parser
 import pandas as pd
+import numpy as np
 import joblib
 import json
 import os
@@ -152,28 +156,88 @@ Request Data Format
 
 '''
 
-@app.route('/classify_abc', methods=['POST'])
+@app.route('/classify_abc')
 def classify_abc():
-    data = request.json
-    item_name = data.get('item_name')
-    category = data.get('category')
-    annual_usage_rate = data.get('annual_usage_rate')
-    stock_turnover_rate = data.get('stock_turnover_rate')
 
-    if item_name not in list(sarimax_forecast_models.keys()):
-        return jsonify({'error': 'Item not found'}), 400
+    '''
+    DATA PREPROCESSING
+    '''
+
+    item_listing = pd.DataFrame([
+        {**item, '_id': str(item['_id']), 'createdBy': str(item['createdBy'])} for item in item_collection.find()
+    ])
     
-    prediction = abc_model.predict(pd.DataFrame({
-        'category': category,
-        'annual_usage_rate': annual_usage_rate,
-        'stock_turnover_rate': stock_turnover_rate,
-    }))
-    print(f'Prediction: {prediction}')
+    stock_listing = pd.DataFrame([
+            {**stock, '_id': str(stock['_id']), 'listing': str(stock['listing'])} for stock in stock_collection.find()
+        ])
+    
+    item_stock_data = item_listing.merge(stock_listing, left_on='_id', right_on='listing')
+    item_stock_data.drop(columns=['abcCategory'], inplace=True)
 
-    return jsonify({
-        'item_name': item_name,
-        'ABC_category': prediction,
-    })
+    item_stock_prep = item_stock_data[['title', 'category', 'quantity', 'unitCost', 'avgUsagePerDay', 'acquisitionDate']].copy()
+    
+    item_stock_prep['month'] = item_stock_prep['acquisitionDate'].dt.to_period('M')
+    item_stock_prep['year'] = item_stock_prep['acquisitionDate'].dt.to_period('Y')
+
+    consumable_features = item_stock_prep[item_stock_prep['category'] == 'Consumable'].sort_values(['title', 'acquisitionDate']).groupby(['title', 'month']).agg(
+            beginning_inventory = ('quantity', 'first'),
+            ending_inventory = ('quantity', 'last'),
+    ).reset_index()
+
+    consumable_features['category'] = 'Consumable'
+
+    equipment_features = item_stock_prep[item_stock_prep['category'] == 'Equipment'].sort_values(['title', 'acquisitionDate']).groupby(['title', 'year']).agg(
+            beginning_inventory = ('quantity', 'first'),
+            ending_inventory = ('quantity', 'last'),
+    ).reset_index()
+
+    equipment_features['category'] = 'Equipment'
+
+    equipment_features = equipment_features.loc[equipment_features.index.repeat(12)].reset_index(drop=True)
+    equipment_features['month'] = pd.to_datetime(equipment_features['year'].astype(str) + '-' + np.tile(range(1, 13), len(equipment_features) // 12).astype(str)).dt.strftime('%Y-%m')
+    feature_df = pd.concat([consumable_features, equipment_features.drop(columns=['year'])])
+
+    # Annual Usage (For Equipment Turnover Rate)
+    annual_usage_df = item_stock_prep.groupby(['title', 'year']).agg(annual_usage = ('avgUsagePerDay', 'sum')).reset_index()
+    feature_df['year'] = pd.to_datetime(feature_df['month'], format='%Y-%m')
+    feature_df['year'] = feature_df['year'].dt.to_period('Y')
+    feature_df = feature_df.merge(annual_usage_df, on=['title', 'year'], how='inner')
+
+    # Monthly Usage (For Consumable Turnover Rate) -> Shortcutting this by dividing annual usage by 12
+    feature_df['monthly_usage'] = feature_df['annual_usage'] / 12
+
+    # Unit Cost
+    cost_df = item_stock_data.groupby('title')[['unitCost']].mean().reset_index()
+    feature_df = feature_df.merge(cost_df, on='title', how='left')
+
+    # Annual Usage Value (AUG)
+    feature_df['annual_usage_value'] = feature_df['annual_usage'] * feature_df['unitCost']
+
+    # Stock Turnover Rate
+    feature_df['stock_turnover_rate'] = np.where(feature_df['category'] == 'Consumable',
+                                                feature_df['monthly_usage'] / ((feature_df['beginning_inventory'] + feature_df['ending_inventory']) / 2),
+                                                feature_df['annual_usage'] / ((feature_df['beginning_inventory'] + feature_df['ending_inventory']) / 2),
+                                                )
+    
+    # Return only latest records for each item
+    latest_idx = feature_df.groupby('title')['month'].idxmax()
+    feature_df = feature_df.loc[latest_idx]
+    
+    '''
+    FEATURE ENGINEERING
+    '''
+
+    X_features = ['category', 'annual_usage_value', 'stock_turnover_rate']
+    X = feature_df[X_features]
+
+    '''
+    ABC CATEGORY PREDICTION
+    '''
+    
+    abc_prediction_data = abc_model.predict(X)
+    print(f'PREDICTIONS: {abc_prediction_data}')
+
+    return jsonify({})
 
 '''
 Top 5 Demands for Current Month
