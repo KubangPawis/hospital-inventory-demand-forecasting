@@ -237,7 +237,30 @@ def classify_abc():
     abc_prediction_data = abc_model.predict(X)
     print(f'PREDICTIONS: {abc_prediction_data}')
 
-    return jsonify({})
+    feature_df1 = feature_df.copy()
+    feature_df1['cluster'] = abc_prediction_data
+
+    # Rename clusters to A, B, C based on AUV values
+    cluster_mapping = {
+        feature_df1.groupby('cluster')['annual_usage_value'].mean().idxmax(): 'A',
+        feature_df1.groupby('cluster')['annual_usage_value'].mean().idxmin(): 'C'
+    }
+    cluster_mapping = {k: cluster_mapping.get(k, 'B') for k in range(3)}
+
+    # Map cluster labels to A, B, C
+    feature_df1['abcCategory'] = feature_df1['cluster'].map(cluster_mapping)
+    feature_df1 = feature_df1[['title', 'abcCategory']].copy()
+    feature_df1 = feature_df1.to_dict(orient='records')
+
+    # Update records
+    for item in feature_df1:
+        item_collection.update_one(
+            {'title': item['title']},
+            {'$set': {'abcCategory': item['abcCategory']}},
+            upsert=False
+        )
+
+    return jsonify(feature_df1)
 
 '''
 Top 5 Demands for Current Month
