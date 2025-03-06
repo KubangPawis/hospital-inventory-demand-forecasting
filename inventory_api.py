@@ -11,15 +11,13 @@ import numpy as np
 import joblib
 import json
 import os
-# from flask_cors import CORS
+from flask_cors import CORS
 
 app = Flask(__name__)
 
 # Load .env
 load_dotenv()
-
-# CORS(app, resources={r"/*": {"origins": ["http://localhost:5173","http://localhost:5174"]}})
-
+CORS(app, resources={r"/*": {"origins": ["http://localhost:5173","http://localhost:5174"]}})
 
 # Database Connection
 mongo_uri = os.getenv('MONGO_URI')
