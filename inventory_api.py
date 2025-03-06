@@ -1,7 +1,4 @@
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from bson import ObjectId
